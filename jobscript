@@ -4,7 +4,7 @@
 #SBATCH -e vasp.%j.err 
 #SBATCH -N NODE         
 #SBATCH -n CORE
-#SBATCH -p vm-small      
+#SBATCH -p QUEUE      
 #SBATCH -t TIME        
 #SBATCH -A PHY24018
 

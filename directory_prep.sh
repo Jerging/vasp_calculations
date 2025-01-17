@@ -9,6 +9,7 @@ KPR=0.04
 KSCHEME=2
 
 #Relax jobscript parameters
+RQUEUE="vm-small"
 RNODE="1"
 RCORE="1"
 RTIME="00:01:00"
@@ -27,7 +28,7 @@ for CALC in bands elastic phonons relax; do
 	cp POTCAR ./$CALC/ || { echo "Failed to copy POTCAR file to $CALC"; exit 1; }
 done
 
-#Copy/create input files in relax subdirectory and run relaxation calculations until convergence threshold (or submission limit) is met
+#Copy/create input files in relax subdirectory
 cp POSCAR ./relax/ || { echo "Failed to copy POSCAR file to relax"; exit 1; }
 mv POSCAR unrelaxedPOSCAR 
 
@@ -35,11 +36,30 @@ cd ./relax/
 echo -e "101\nSR" | vaspkit
 echo -e "102\n$KSCHEME\n$KPR" | vaspkit | { echo "Initial K-space";  awk '/Summary/,/+---------------------------------------------------------------+/'; } >> README
 
-sed -e "s/NODE/$RNODE/" -e "s/CORE/$RCORE/" -e "s/TIME/$RTIME/" jobscript > jobscript.tmp
+sed -e "/QUEUE/$RQUEUE/" -e "s/NODE/$RNODE/" -e "s/CORE/$RCORE/" -e "s/TIME/$RTIME/" jobscript > jobscript.tmp
 mv jobscript.tmp jobscript
-FIRSTID=$(sbatch jobscript | awk '{print $NF}')
-mv CONTCAR POSCAR
 
+#Submit Standard relaxation jobscript
+JOBID=$(sbatch jobscript | awk '{print $NF}')
+
+# Debugging: Print the captured job ID
+sleep 1
+echo "Submitted job with ID: $JOBID"
+
+# Check if the job ID is valid
+if [[ -z $JOBID ]]; then
+   	 echo "Error: Job ID not captured. Exiting."
+   	 exit 1
+fi
+
+# Wait for the SLURM output file
+while [ ! -f "vasp.${JOBID}.out" ]; do
+	echo "Waiting for standard relaxation job number ${JOBID}..."
+   	sleep 10
+done
+
+echo "Standard relaxation job number $JOBID completed."
+mv CONTCAR POSCAR
 #echo -e "101\nLR" | vaspkit
 
 #sbatch jobscript
