@@ -36,18 +36,17 @@ cd ./relax/
 echo -e "101\nSR" | vaspkit
 echo -e "102\n$KSCHEME\n$KPR" | vaspkit | { echo "Initial K-space";  awk '/Summary/,/+---------------------------------------------------------------+/'; } >> README
 
-sed -e "/QUEUE/$RQUEUE/" -e "s/NODE/$RNODE/" -e "s/CORE/$RCORE/" -e "s/TIME/$RTIME/" jobscript > jobscript.tmp
+sed -e "s/QUEUE/$RQUEUE/" -e "s/NODE/$RNODE/" -e "s/CORE/$RCORE/" -e "s/TIME/$RTIME/" jobscript > jobscript.tmp
 mv jobscript.tmp jobscript
 
-#Submit Standard relaxation jobscript
-JOBID=$(sbatch jobscript | awk '{print $NF}')
+# Submit Standard relaxation jobscript
+JOBID=$(sbatch jobscript | awk 'END {print $NF}')
 
 # Debugging: Print the captured job ID
-sleep 1
-echo "Submitted job with ID: $JOBID"
+echo "Submitted job with ID: ${JOBID}"
 
 # Check if the job ID is valid
-if [[ -z $JOBID ]]; then
+if [[ -z ${JOBID} ]]; then
    	 echo "Error: Job ID not captured. Exiting."
    	 exit 1
 fi
@@ -58,7 +57,7 @@ while [ ! -f "vasp.${JOBID}.out" ]; do
    	sleep 10
 done
 
-echo "Standard relaxation job number $JOBID completed."
+echo "Standard relaxation job number ${JOBID} completed."
 mv CONTCAR POSCAR
 #echo -e "101\nLR" | vaspkit
 
