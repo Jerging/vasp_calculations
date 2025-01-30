@@ -1,0 +1,4 @@
+TYPE                    ! 1 for pre-processing; 2 for post-processing
+DIM                   ! 2D for two-dimensional, 3D for bulk
+7                    ! number of strain case
+-0.015 -0.010 -0.005 0.000 0.005 0.010 0.015  ! Strain range
