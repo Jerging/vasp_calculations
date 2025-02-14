@@ -20,11 +20,7 @@ if ! mkdir -p "$DIR"; then
 fi
 cd "$DIR" || { echo "Error: Failed to enter directory $DIR."; exit 1; }
 
-# Modify jobscript and copy initial POSCAR
-if ! sed "s/SYSTEM/$SYSTEM/" ~/scripts/jobscript > jobscript.tmp; then
-    echo "Error: Failed to modify jobscript for $SYSTEM."
-    exit 1
-fi
+# Copy initial POSCAR
 if ! cp ~/POSCARs/"$SYSTEM" POSCAR; then
     echo "Error: Failed to copy POSCAR for $SYSTEM."
     exit 1
@@ -45,16 +41,11 @@ for CALC in bands elastic phonons relax; do
         echo "Error: Failed to create directory $CALC."
         exit 1
     fi
-    if ! sed "s/CALC/$CALC/" jobscript.tmp > "$CALC/jobscript.tmp"; then
-        echo "Error: Failed to modify jobscript for $CALC."
-        exit 1
-    fi
     if ! cp POTCAR "$CALC/"; then
         echo "Error: Failed to copy POTCAR file to $CALC."
         exit 1
     fi
 done
-rm -f jobscript.tmp
 
 # Copy/create input files in relax subdirectory
 if ! cp unrelaxedPOSCAR relax/POSCAR; then

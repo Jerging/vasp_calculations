@@ -11,17 +11,17 @@ echo "mv CONTCAR POSCAR" >> jobscript
 echo "touch std_finish" >> jobscript
 
 # Submit standard relaxation jobscript
-sbatch jobscript
+#sbatch jobscript
 
 # Wait for the "std_finish" file to indicate completion
-while [ ! -f "std_finish" ]; do
-    echo "Waiting for standard relaxation calculation to finish."
-    sleep 10
-done
+#while [ ! -f "std_finish" ]; do
+#    echo "Waiting for standard relaxation calculation to finish."
+#    sleep 10
+#done
 
 # Cleanup and completion message
-if [[ -f "std_finish" ]]; then
-    rm std_finish
-    echo "Standard relaxation calculation finished."
-fi
+#if [[ -f "std_finish" ]]; then
+#    rm std_finish
+#    echo "Standard relaxation calculation finished."
+#fi
 
