@@ -11,7 +11,7 @@ SYSTEM="$1"
 PSEUDO="$2"
 KPR="$3"
 KSCHEME="$4"
-DIR="${SYSTEM}_${PSEUDO}_${KPR}_${KSCHEME}"
+DIR="${SYSTEM}_${PSEUDO}"
 
 # Setup directory architecture for future calculations
 if ! mkdir -p "$DIR"; then
