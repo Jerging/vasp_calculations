@@ -1,8 +1,8 @@
 #!/usr/bin/bash
 
 # Ensure correct number of arguments
-if [ "$#" -ne 4 ]; then
-    echo "Usage: $0 <SYSTEM> <PSEUDO> <KPR> <KSCHEME>"
+if [ "$#" -ne 5 ]; then
+    echo "Usage: $0 <SYSTEM> <PSEUDO> <KPR> <KSCHEME> <DIRNAME>"
     exit 1
 fi
 
@@ -11,7 +11,7 @@ SYSTEM="$1"
 PSEUDO="$2"
 KPR="$3"
 KSCHEME="$4"
-DIR="${SYSTEM}_${PSEUDO}"
+DIR="$5"
 
 # Setup directory architecture for future calculations
 if ! mkdir -p "$DIR"; then
@@ -33,10 +33,17 @@ if ! echo -e "01\n103" | vaspkit | awk '/Summary/,EOF' >> README; then
     echo "Error: Failed to generate VASPkit summary."
     exit 1
 fi
+
+# Run vaspkit to analyzed unrelaxed structure
+if ! echo -e "06\n601" | vaspkit | awk '/Summary/,EOF' >> unrelaxedSymmetry; then
+    echo "Error: Failed to generate VASPkit symmetry analysis."
+    exit 1
+fi
+
 mv POSCAR unrelaxedPOSCAR
 
 # Setup subdirectories for different calculation types
-for CALC in bands elastic phonons relax; do
+for CALC in electrons elastic phonons relax; do
     if ! mkdir -p "$CALC"; then
         echo "Error: Failed to create directory $CALC."
         exit 1
