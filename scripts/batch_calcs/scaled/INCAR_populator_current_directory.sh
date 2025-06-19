@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 
 # Usage check
-if [ "$#" -ne 3 ]; then
-    echo "Usage: $0 <SYSTEM> <CALC> <FUNCTIONAL>"
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <CALC> <FUNCTIONAL>"
     exit 1
 fi
 
-SYS="$1"
-CALC="$2"
-FUNC="$3"
+CALC="$1"
+FUNC="$2"
 INCAR_TEMPLATE="INCARs/${CALC}_${FUNC}_INCAR"
 LOGFILE="incar_copy.log"
 
@@ -21,7 +20,7 @@ fi
 echo "=== Copying INCARs for $FUNC/$CALC ===" | tee -a "$LOGFILE"
 
 # Locate target calculation directories
-find calculations -type d -path "calculations/${SYS}/*${FUNC}/${CALC}" | while read -r calc_dir; do
+find . -type d -path "*/${FUNC}/${CALC}" | while read -r calc_dir; do
     incar_dest="${calc_dir}/INCAR"
 
     # Backup existing INCAR if present

@@ -15,12 +15,12 @@ QUEUE="$5"
 TIME="$6"
 
 # Ask for an optional file with extra job commands
-read -p "Enter path to extra commands file (or type 'none'): " EXTRAS_FILE
+#read -p "Enter path to extra commands file (or type 'none'): " EXTRAS_FILE
 
-if [[ "$EXTRAS_FILE" != "none" && ! -f "$EXTRAS_FILE" ]]; then
-  echo "Error: File '$EXTRAS_FILE' not found."
-  exit 1
-fi
+#if [[ "$EXTRAS_FILE" != "none" && ! -f "$EXTRAS_FILE" ]]; then
+#  echo "Error: File '$EXTRAS_FILE' not found."
+#  exit 1
+# fi
 
 # Write the main job script
 cat > jobscript <<EOF
