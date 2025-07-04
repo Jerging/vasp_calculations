@@ -42,6 +42,12 @@ else
     IFS=',' read -ra SELECTED_FUNCS <<< "$tmp"
 fi
 
+# ────────────────────────── USER INPUT FOR MAGNETIZATION GROUP SIZES ──────
+read -rp "Enter number of atoms to sum for Group A magnetization (default 4): " groupA
+groupA=${groupA:-4}
+read -rp "Enter number of atoms to sum for Group B magnetization (default 4): " groupB
+groupB=${groupB:-4}
+
 # ────────────────────────── HELPER FUNCTION ──────────────────────────────
 get_lengths () {
     local file=$1
@@ -58,13 +64,17 @@ for CALC in "${SELECTED_CALCS[@]}"; do
     for FUNC in "${SELECTED_FUNCS[@]}"; do
         out_dir="${FUNC}_${CALC}"
         mkdir -p "$out_dir/BAND_GAPS"
-	mkdir -p "$out_dir/vasprun"
-	vasprun_path="$out_dir/vasprun"
+        mkdir -p "$out_dir/vasprun"
+        vasprun_path="$out_dir/vasprun"
         out_dir_abs=$(realpath "$out_dir")
 
         echo -e "Directory\tA(Å)\tB(Å)\tC(Å)\tEnergy(eV)" > "$out_dir_abs/energies.dat"
         echo -e "Directory\tA(Å)\tB(Å)\tC(Å)\tGap_eV\tFermi_E_eV" > "$out_dir_abs/band_gaps.dat"
-        echo "" > "$out_dir_abs/magnetization.dat"
+        
+        # Write header with group sizes to magnetization.dat for parsing
+        echo -e "# Group A atoms: $groupA" > "$out_dir_abs/magnetization.dat"
+        echo -e "# Group B atoms: $groupB" >> "$out_dir_abs/magnetization.dat"
+        echo "" >> "$out_dir_abs/magnetization.dat"
 
         total=0; converged=0; failed=()
 
@@ -85,9 +95,9 @@ for CALC in "${SELECTED_CALCS[@]}"; do
                 failed+=("$calc_path")
                 continue
             fi
-	    
-	    mkdir -p "$vasprun_path/$poscar"
-	    cp "$calc_path/vasprun.xml" "$vasprun_path/$poscar/vasprun.xml"
+
+            mkdir -p "$vasprun_path/$poscar"
+            cp "$calc_path/vasprun.xml" "$vasprun_path/$poscar/vasprun.xml"
             struct="$calc_path/POSCAR"
             [[ $CALC == relax && -f $calc_path/CONTCAR ]] && struct="$calc_path/CONTCAR"
             energy=$(grep "free  energy" "$outcar" | tail -1 | awk '{print $5}') || true
