@@ -14,11 +14,11 @@ if [ "$#" -ne 5 ]; then
     exit 1
 fi
 
-SYS="$1"          # e.g. SrTiO3
-CALC="$2"         # e.g. scf
-KPR="$3"          # e.g. 0.04
-KSCHEME="$4"      # e.g. 2 for Monkhorst
-FUNC="$5"         # e.g. PBEsol+U
+SYS="$1"          # Designation to identify system studied
+CALC="$2"         # Calculation type, e.g. scf, phonons, etc.
+KPR="$3"          # K-point mesh, Gamma only: 0; Low: 0.06~0.04; Med: 0.04~0.03; High: 0.03~0.01
+KSCHEME="$4"      # e.g. 1 for Monkhorst, 2 for Gamma centered, 3 for Irr. K-Points with Gamma Scheme
+FUNC="$5"         # e.g. LDA, PBEsol+U, etc.
 
 # ──────────────────────────
 # 2. Discover candidate POSCAR sets
