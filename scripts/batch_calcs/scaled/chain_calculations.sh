@@ -4,6 +4,11 @@ set -euo pipefail
 
 ROOT=$PWD
 
+# Get FUNC and CALC from the current directory structure
+CALC=$(basename "$PWD")
+FUNC=$(basename "$(dirname "$PWD")")
+SYS=$(basename "$(dirname "$(dirname "$PWD")")")
+
 # Find all POSCAR_scaled_* directories, sorted
 mapfile -t ALL_DIRS < <(find . -maxdepth 1 -type d -name "POSCAR_scaled_*" | sort)
 
@@ -63,19 +68,16 @@ for idx in "${indices[@]}"; do
   fi
 done
 
-read -rp "Enter functional (e.g. PBEsol+U): " FUNC
-read -rp "Enter calculation type (e.g. ICHARG_scf): " CALC
-
 read -rp "Enter number of nodes (e.g. 1): " NODES
 read -rp "Enter number of cores (e.g. 128): " CORES
 read -rp "Enter queue/partition (e.g. normal): " QUEUE
 read -rp "Enter walltime in HH:MM:SS (e.g. 48:00:00): " TIME
 
-# Build full paths for selected directories
+# Build full paths for selected directories (now just POSCAR_scaled_* dirs)
 DIRS=()
 for idx in "${indices[@]}"; do
   d="${ALL_DIRS[idx]#./}"
-  full_dir="$d/$FUNC/$CALC"
+  full_dir="$d"
   if [[ ! -d "$full_dir" ]]; then
     echo "Error: Directory does not exist: $full_dir"
     exit 1
@@ -179,6 +181,5 @@ EOF
 chmod +x "$JOBSCRIPT"
 
 echo "Jobscript '$JOBSCRIPT' created."
-echo "Submitting jobscript with sbatch..."
-sbatch "$JOBSCRIPT"
+echo "Submitting jobscript with
 
