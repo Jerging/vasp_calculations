@@ -67,9 +67,9 @@ for f in "${SELECTED_POTCAR[@]}"; do
 done
 
 # ──────────────────────────
-# 5. Build calculation tree
+# 5. Build calculation tree (FUNC/CALC/POSCAR_scaled*)
 # ──────────────────────────
-CALC_ROOT="${SYS}_calculations"
+CALC_ROOT="${SYS}"
 mkdir -p "$CALC_ROOT"
 
 cp "$POSCAR_SOURCE/POSCAR" "$CALC_ROOT/${POSCARDIR}_POSCAR"
@@ -78,14 +78,10 @@ for poscar_file in "$POSCAR_SOURCE"/POSCAR_scaled_*; do
     fname=$(basename "$poscar_file")
     [[ "$fname" == "POSCAR" || "$fname" == "scales.txt" ]] && continue
 
-    scaled_dir="$CALC_ROOT/$fname"
-    mkdir -p "$scaled_dir"
-    cp "$poscar_file" "$scaled_dir/POSCAR"
-
     for potcar in "${SELECTED_POTCAR[@]}"; do
-        subdir="$scaled_dir/$FUNC/$CALC"
+        subdir="$CALC_ROOT/$FUNC/$CALC/$fname"
         mkdir -p "$subdir"
-        cp "$scaled_dir/POSCAR" "$subdir/POSCAR"
+        cp "$poscar_file" "$subdir/POSCAR"
 
         # Update ~/.vaspkit with chosen POTCAR
         sed "s/PSEUDO/$potcar/" ~/.vaspkitbase > ~/.vaspkit
@@ -103,4 +99,3 @@ for poscar_file in "$POSCAR_SOURCE"/POSCAR_scaled_*; do
 done
 
 echo "🎉 Setup complete for initial scaled $CALC calculations of the $SYS system."
-
