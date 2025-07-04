@@ -1,71 +1,105 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Usage: ./write_jobscript.sh <CALC_NAME> <NODES> <CORES> <QUEUE> <TIME>
 
-# Check if the correct number of arguments is provided
-if [ "$#" -ne 6 ]; then
-  echo "Usage: $0 <CALC> <SYSTEM> <NODE> <CORE> <QUEUE> <TIME>"
-  exit 1
+set -euo pipefail
+
+if [ "$#" -ne 5 ]; then
+    echo "Usage: $0 <CALC_NAME> <NODES> <CORES> <QUEUE> <TIME>"
+    exit 1
 fi
 
-# Assign input arguments to variables
 CALC="$1"
-SYSTEM="$2"
-NODE="$3"
-CORE="$4"
-QUEUE="$5"
-TIME="$6"
+NODES="$2"
+CORES="$3"
+QUEUE="$4"
+TIME="$5"
 
-# Ask for an optional file with extra job commands
-#read -p "Enter path to extra commands file (or type 'none'): " EXTRAS_FILE
-
-#if [[ "$EXTRAS_FILE" != "none" && ! -f "$EXTRAS_FILE" ]]; then
-#  echo "Error: File '$EXTRAS_FILE' not found."
-#  exit 1
-# fi
-
-# Write the main job script
+###############################################################################
+# 1. Write the base jobscript --------------------------------------------------
+###############################################################################
 cat > jobscript <<EOF
 #!/bin/bash
-#SBATCH -J ${CALC}_${SYSTEM}
-#SBATCH -o vasp.%j.out
-#SBATCH -e vasp.%j.err
-#SBATCH -N ${NODE}
-#SBATCH -n ${CORE}
+#SBATCH -J ${CALC}
+#SBATCH -o ${CALC}.out
+#SBATCH -e ${CALC}.err
+#SBATCH -N ${NODES}
+#SBATCH -n ${CORES}
 #SBATCH -p ${QUEUE}
 #SBATCH -t ${TIME}
 #SBATCH -A PHY24018
 
 module load vasp/6.3.0
+export OMP_NUM_THREADS=1
 
-echo "Job started on: \$(date)"
-start_time=\$(date)
+start_time=\$(date +%s)
+ibrun vasp_std > vasp.out
+status=\$?
+end_time=\$(date +%s)
+elapsed=\$((end_time - start_time))
 
-ibrun vasp_std > ${CALC}.out
-vasp_exit_code=\$?
+# Extract NSW from INCAR
+NSW=\$(awk '/^NSW/ {print \$3}' INCAR)
+NSW=\${NSW:-0}  # Default to 0 if not present
 
-if [[ \$vasp_exit_code -ne 0 ]]; then
-    echo "VASP exited with error code \$vasp_exit_code"
-    echo "Job failed: \$(date)"
-    exit 1
-fi
-
-if [[ -f OUTCAR ]] && grep -q "reached required accuracy" OUTCAR; then
-    touch COMPLETED
-    echo "VASP completed successfully and converged."
+# Determine convergence status based on NSW
+if [[ "\$NSW" -gt 0 ]]; then
+    # Relaxation run
+    if grep -q "reached required accuracy" OUTCAR; then
+        conv_status="ionic_converged"
+        touch COMPLETED
+    elif grep -q "General timing and accounting" OUTCAR; then
+        conv_status="relax_complete_but_not_converged"
+        touch COMPLETED
+    else
+        conv_status="failed"
+    fi
 else
-    echo "VASP finished but did not converge."
-    exit 2
+    # Static run
+    if grep -q "General timing and accounting" OUTCAR; then
+        conv_status="static_completed"
+        touch COMPLETED
+    else
+        conv_status="failed"
+    fi
 fi
-
-end_time=\$(date)
-echo "Job ended on: \$end_time"
 EOF
 
-# If a valid extras file was provided, append its contents
-if [[ "$EXTRAS_FILE" != "none" ]]; then
-  echo -e "\n# Additional user-supplied commands:" >> jobscript
-  cat "$EXTRAS_FILE" >> jobscript
+###############################################################################
+# 2. Offer optional snippet additions -----------------------------------------
+###############################################################################
+ADDITIONS_DIR="$HOME/scripts/jobscript_additions"
+
+if [ -d "$ADDITIONS_DIR" ] && compgen -G "$ADDITIONS_DIR"/* >/dev/null; then
+    echo
+    echo "Optional jobscript additions found in: $ADDITIONS_DIR"
+    mapfile -t ADDITION_FILES < <(ls -1 "$ADDITIONS_DIR"/*)
+
+    # Show a numbered list
+    for i in "${!ADDITION_FILES[@]}"; do
+        printf "  %2d) %s\n" "$((i + 1))" "$(basename "${ADDITION_FILES[i]}")"
+    done
+    echo
+
+    read -rp "Enter numbers to append (e.g. 1 3 4), or press <Enter> for none: " CHOICES
+    echo
+
+    for idx in $CHOICES; do
+        if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#ADDITION_FILES[@]} )); then
+            FILE="${ADDITION_FILES[idx-1]}"
+            echo ">>> Appending $(basename "$FILE")"
+            {
+                printf "\n# ===== Begin %s =====\n" "$(basename "$FILE")"
+                cat "$FILE"
+                printf "\n# ===== End %s =====\n"   "$(basename "$FILE")"
+            } >> jobscript
+        else
+            echo ">>> Skipping invalid selection: '$idx'"
+        fi
+    done
+else
+    echo "No snippet files found in $ADDITIONS_DIR – skipping optional additions."
 fi
 
-echo "Robust job script with chosen parameters created!"
-[[ "$EXTRAS_FILE" != "none" ]] && echo "Extra commands from '$EXTRAS_FILE' appended to jobscript."
+echo -e "\n✅ Jobscript written to ./jobscript"
 
