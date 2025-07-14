@@ -29,6 +29,8 @@ cat > jobscript <<EOF
 #SBATCH -t ${TIME}
 #SBATCH -A PHY24018
 
+module purge
+module load intel/19.1.1 impi/19.0.9   # prerequisites
 module load vasp/6.3.0
 export OMP_NUM_THREADS=1
 

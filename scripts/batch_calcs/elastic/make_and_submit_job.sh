@@ -1,72 +1,66 @@
 #!/usr/bin/env bash
 # chain_vasp_launcher.sh
-# Run inside a CALC directory that contains many POSCAR_scaled_* subfolders.
-# The script interactively builds and submits a SLURM job that executes VASP
-# in each POSCAR_scaled_* directory in sequence, copying selected files forward.
+# Run inside a directory that contains subdirectories with strain_* folders.
+# The script builds and submits a SLURM job that executes VASP
+# in ALL strain_* directories across ALL top-level directories, copying selected files forward.
 
 set -euo pipefail
 
-ROOT=$PWD                 # Absolute path to current CALC directory
+ROOT=$PWD                 # Absolute path to current directory
 JOBSCRIPT="chain_vasp_jobscript.sh"
 
 ###############################################################################
-# 1. Discover POSCAR_scaled_* directories
+# 1. Discover top-level directories (C11_C12_I, C11_C12_II, C44, etc.)
 ###############################################################################
-mapfile -t ALL_DIRS < <(find . -maxdepth 1 -type d -name "POSCAR_scaled_*" | sort)
+mapfile -t TOP_DIRS < <(find . -maxdepth 1 -type d ! -name "." | sort)
 
-if [[ ${#ALL_DIRS[@]} -eq 0 ]]; then
-  echo "No POSCAR_scaled_* directories found in $ROOT"
+if [[ ${#TOP_DIRS[@]} -eq 0 ]]; then
+  echo "No subdirectories found in $ROOT"
   exit 1
 fi
 
-echo "Found POSCAR_scaled_* directories:"
-for i in "${!ALL_DIRS[@]}"; do
-  d="${ALL_DIRS[i]#./}"
-  echo "  [$i] $d"
+echo "Found top-level directories:"
+for i in "${!TOP_DIRS[@]}"; do
+  d="${TOP_DIRS[i]#./}"
+  echo "  $d"
 done
 echo
 
 ###############################################################################
-# 2. Let user choose which directories to chain
+# 2. Will run all top-level directories (no selection needed)
 ###############################################################################
-echo "Choose input method:"
-echo "1) Choose individual indices (e.g. 0 2 4)"
-echo "2) Choose range (start..end)"
-read -rp "Select input method (1 or 2): " method
-indices=()
+echo "Will run all top-level directories and their strain subdirectories."
+echo
 
-if [[ "$method" == "1" ]]; then
-  read -rp "Enter the indices of directories to chain, in order (space‑separated): " -a indices
-elif [[ "$method" == "2" ]]; then
-  read -rp "Enter start index: " start_idx
-  read -rp "Enter end index:   " end_idx
-  if ! [[ "$start_idx" =~ ^[0-9]+$ && "$end_idx" =~ ^[0-9]+$ ]]; then
-    echo "Start and end must be integers."
-    exit 1
-  fi
-  if (( start_idx < 0 || start_idx >= ${#ALL_DIRS[@]} || end_idx < 0 || end_idx >= ${#ALL_DIRS[@]} )); then
-    echo "Indices out of range."
-    exit 1
-  fi
-  if (( start_idx <= end_idx )); then
-    for ((i=start_idx; i<=end_idx; i++)); do indices+=("$i"); done
-  else
-    for ((i=start_idx; i>=end_idx; i--)); do indices+=("$i"); done
-  fi
-else
-  echo "Invalid input method."
-  exit 1
-fi
-
-for idx in "${indices[@]}"; do
-  if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 0 || idx >= ${#ALL_DIRS[@]} )); then
-    echo "Invalid index: $idx"
-    exit 1
+###############################################################################
+# 3. Discover all strain_* directories in all top-level directories
+###############################################################################
+ALL_DIRS=()
+for top_dir in "${TOP_DIRS[@]}"; do
+  top_dir_clean="${top_dir#./}"
+  mapfile -t strain_dirs < <(find "$top_dir_clean" -maxdepth 1 -type d -name "strain_*" | sort)
+  if [[ ${#strain_dirs[@]} -gt 0 ]]; then
+    ALL_DIRS+=("${strain_dirs[@]}")
+    echo "Found strain_* directories in $top_dir_clean:"
+    for d in "${strain_dirs[@]}"; do
+      echo "  $d"
+    done
+    echo
   fi
 done
 
+if [[ ${#ALL_DIRS[@]} -eq 0 ]]; then
+  echo "No strain_* directories found in any top-level directory"
+  exit 1
+fi
+
 ###############################################################################
-# 3. SLURM resource prompts
+# 4. Will run all strain directories (no selection needed)
+###############################################################################
+echo "Will run all strain directories in order."
+
+###############################################################################
+# 5. SLURM resource prompts
 ###############################################################################
 read -rp "Enter number of nodes     (e.g. 1):        " NODES
 read -rp "Enter number of cores     (e.g. 128):      " CORES
@@ -75,24 +69,16 @@ read -rp "Enter walltime HH:MM:SS   (e.g. 48:00:00): " TIME
 echo
 
 ###############################################################################
-# 4. Build list of target directories
+# 6. Use all directories (no selection needed)
 ###############################################################################
-DIRS=()
-for idx in "${indices[@]}"; do
-  d="${ALL_DIRS[idx]#./}"
-  if [[ ! -d "$d" ]]; then
-    echo "Directory does not exist: $d"
-    exit 1
-  fi
-  DIRS+=("$d")
-done
+DIRS=("${ALL_DIRS[@]}")
 
-echo "Chaining over the following directories (in order):"
+echo "Will run calculations in all directories (in order):"
 printf '  %s\n' "${DIRS[@]}"
 echo
 
 ###############################################################################
-# 5. Ask which files to copy forward
+# 7. Ask which files to copy forward
 ###############################################################################
 FILES_TO_COPY=()
 
@@ -115,7 +101,7 @@ DIRS_LITERAL=$(printf '"%s" ' "${DIRS[@]}")
 
 
 ###############################################################################
-# 6. Construct the SLURM jobscript
+# 8. Construct the SLURM jobscript
 ###############################################################################
 cat > "$JOBSCRIPT" << EOF
 #!/usr/bin/env bash
@@ -163,9 +149,8 @@ echo "🎉 All calculations finished successfully."
 EOF
 
 ###############################################################################
-# 7. Submit
+# 9. Submit
 ###############################################################################
 echo "Jobscript '$JOBSCRIPT' created."
 echo "Submitting with sbatch..."
 sbatch "$JOBSCRIPT"
-

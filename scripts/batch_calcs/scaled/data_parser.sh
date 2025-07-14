@@ -1,175 +1,220 @@
 #!/usr/bin/env bash
+# debug_data_parser.sh
+# Same functionality but with verbose debug info
 
-# ────────────────────────────── COLOR SETUP ──────────────────────────────
+set -u  # unset variables are errors; disable -e so we see all errors
+
 RED="\033[0;31m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"; RESET="\033[0m"
 
-# ───────────────────── DETECT FUNCTIONALS AND CALC TYPES ────────────────
-declare -A FUNC_MAP CALC_MAP
-for poscar in POSCAR_scaled_*; do
-    [[ -d $poscar ]] || continue
-    for func_dir in "$poscar"/*/; do
-        func=$(basename "$func_dir") ; FUNC_MAP["$func"]=1
-        for calc_dir in "$func_dir"*/; do
-            calc=$(basename "$calc_dir") ; CALC_MAP["$calc"]=1
-        done
-    done
-done
+shopt -s nullglob
+scaled_dirs=(POSCAR_scaled_*/)
+shopt -u nullglob
 
-AVAILABLE_FUNCTIONALS=("${!FUNC_MAP[@]}")
-AVAILABLE_CALCS=("${!CALC_MAP[@]}")
-
-if [[ ${#AVAILABLE_FUNCTIONALS[@]} -eq 0 || ${#AVAILABLE_CALCS[@]} -eq 0 ]]; then
-    echo -e "${RED}No valid POSCAR_scaled_* hierarchy found — nothing to do.${RESET}"
+if [[ ${#scaled_dirs[@]} -eq 0 ]]; then
+    echo -e "${RED}❌  No POSCAR_scaled_* subdirectories found here.${RESET}"
     exit 1
 fi
 
-# ────────────────────────────── USER INPUT ───────────────────────────────
-echo -e "${CYAN}Detected calculation types:${RESET} ${AVAILABLE_CALCS[*]}"
-read -rp "Collect ALL calc-types? (y/n): " ans
-if [[ $ans =~ ^[Yy]$ ]]; then
-    SELECTED_CALCS=("${AVAILABLE_CALCS[@]}")
-else
-    read -rp "Enter calc-types (comma-separated): " tmp
-    IFS=',' read -ra SELECTED_CALCS <<< "$tmp"
-fi
+FUNC="$(basename "$(dirname "$PWD")")"
+CALC="$(basename "$PWD")"
+echo -e "${CYAN}Detected FUNC=${FUNC}  CALC=${CALC}${RESET}\n"
 
-echo -e "\n${CYAN}Detected functionals:${RESET} ${AVAILABLE_FUNCTIONALS[*]}"
-read -rp "Collect ALL functionals? (y/n): " ans
-if [[ $ans =~ ^[Yy]$ ]]; then
-    SELECTED_FUNCS=("${AVAILABLE_FUNCTIONALS[@]}")
-else
-    read -rp "Enter functionals (comma-separated): " tmp
-    IFS=',' read -ra SELECTED_FUNCS <<< "$tmp"
-fi
+read -rp "Copy vasprun.xml files to summary folder? (y/n): " keep_xml
+[[ $keep_xml =~ ^[Yy]$ ]] && COPY_XML=1 || COPY_XML=0
 
-# ────────────────────────── USER INPUT FOR MAGNETIZATION GROUP SIZES ──────
-read -rp "Enter number of atoms to sum for Group A magnetization (default 4): " groupA
-groupA=${groupA:-4}
-read -rp "Enter number of atoms to sum for Group B magnetization (default 4): " groupB
-groupB=${groupB:-4}
+out_dir="${FUNC}_${CALC}"
+mkdir -p "$out_dir/BAND_GAPS"
+(( COPY_XML )) && mkdir -p "$out_dir/vasprun"
+out_abs=$(realpath "$out_dir")
 
-# ────────────────────────── HELPER FUNCTION ──────────────────────────────
+echo -e "Directory\tA(Å)\tB(Å)\tC(Å)\tEnergy(eV)" > "$out_abs/energies.dat"
+echo -e "Directory\tA(Å)\tB(Å)\tC(Å)\tGap_eV\tFermi_E_eV" > "$out_abs/band_gaps.dat"
+mag_file="$out_abs/magnetization.dat"; : > "$mag_file"
+
 get_lengths () {
-    local file=$1
-    read -r ax ay az < <(awk 'NR==3{print $1,$2,$3}' "$file")
-    read -r bx by bz < <(awk 'NR==4{print $1,$2,$3}' "$file")
-    read -r cx cy cz < <(awk 'NR==5{print $1,$2,$3}' "$file")
+    local f=$1
+    echo "Reading lattice vectors from $f"
+    if [[ ! -f $f ]]; then
+        echo -e "${RED}ERROR: Structural file $f not found.${RESET}"
+        a_len=b_len=c_len="NA"
+        return
+    fi
+    read -r ax ay az < <(awk 'NR==3{print $1,$2,$3}' "$f")
+    read -r bx by bz < <(awk 'NR==4{print $1,$2,$3}' "$f")
+    read -r cx cy cz < <(awk 'NR==5{print $1,$2,$3}' "$f")
+
+    if [[ -z $ax || -z $bx || -z $cx ]]; then
+        echo -e "${RED}ERROR: Could not read lattice vectors properly from $f.${RESET}"
+        a_len=b_len=c_len="NA"
+        return
+    fi
+
     a_len=$(awk -v x=$ax -v y=$ay -v z=$az 'BEGIN{printf "%.4f",sqrt(x*x+y*y+z*z)}')
     b_len=$(awk -v x=$bx -v y=$by -v z=$bz 'BEGIN{printf "%.4f",sqrt(x*x+y*y+z*z)}')
     c_len=$(awk -v x=$cx -v y=$cy -v z=$cz 'BEGIN{printf "%.4f",sqrt(x*x+y*y+z*z)}')
+
+    echo "Lattice lengths: A=$a_len, B=$b_len, C=$c_len"
 }
 
-# ────────────────────────────── MAIN LOOP ────────────────────────────────
-for CALC in "${SELECTED_CALCS[@]}"; do
-    for FUNC in "${SELECTED_FUNCS[@]}"; do
-        out_dir="${FUNC}_${CALC}"
-        mkdir -p "$out_dir/BAND_GAPS"
-        mkdir -p "$out_dir/vasprun"
-        vasprun_path="$out_dir/vasprun"
-        out_dir_abs=$(realpath "$out_dir")
+total=0
+converged=0
+failed=()
 
-        echo -e "Directory\tA(Å)\tB(Å)\tC(Å)\tEnergy(eV)" > "$out_dir_abs/energies.dat"
-        echo -e "Directory\tA(Å)\tB(Å)\tC(Å)\tGap_eV\tFermi_E_eV" > "$out_dir_abs/band_gaps.dat"
-        
-        # Write header with group sizes to magnetization.dat for parsing
-        echo -e "# Group A atoms: $groupA" > "$out_dir_abs/magnetization.dat"
-        echo -e "# Group B atoms: $groupB" >> "$out_dir_abs/magnetization.dat"
-        echo "" >> "$out_dir_abs/magnetization.dat"
+for pos_dir in "${scaled_dirs[@]%/}"; do
+    echo -e "\n${CYAN}Checking $pos_dir/...${RESET}"
+    calc_path="$pos_dir"
+    outcar="$calc_path/OUTCAR"
+    if [[ ! -f $outcar ]]; then
+        echo -e "${RED}No OUTCAR found in $calc_path. Skipping.${RESET}"
+        continue
+    fi
 
-        total=0; converged=0; failed=()
+    (( total++ ))
 
-        for poscar in POSCAR_scaled_*; do
-            calc_path="$poscar/$FUNC/$CALC"
-            outcar="$calc_path/OUTCAR"
-            [[ -f $outcar ]] || continue
-            total=$((total+1))
+    # Convergence check
+    ok=false
+    if [[ $CALC == relax ]]; then
+        if grep -q "reached required accuracy" "$outcar"; then
+            ok=true
+            echo "Convergence check: 'reached required accuracy' FOUND"
+        else
+            echo "Convergence check: 'reached required accuracy' NOT found"
+        fi
+    else
+        if grep -q "EDIFF is reached" "$outcar"; then
+            ok=true
+            echo "Convergence check: 'EDIFF is reached' FOUND"
+        else
+            echo "Convergence check: 'EDIFF is reached' NOT found"
+        fi
+    fi
 
-            ok=false
-            if [[ $CALC == relax ]]; then
-                grep -q "reached required accuracy" "$outcar" && ok=true
-            else
-                grep -q "EDIFF is reached" "$outcar" && ok=true
-            fi
-            if ! $ok; then
-                rm -f "$calc_path/COMPLETED"
-                failed+=("$calc_path")
-                continue
-            fi
+    if ! $ok; then
+        echo -e "${RED}Convergence not reached, skipping $pos_dir${RESET}"
+        rm -f "$calc_path/COMPLETED"
+        failed+=("$calc_path")
+        continue
+    fi
 
-            mkdir -p "$vasprun_path/$poscar"
-            cp "$calc_path/vasprun.xml" "$vasprun_path/$poscar/vasprun.xml"
-            struct="$calc_path/POSCAR"
-            [[ $CALC == relax && -f $calc_path/CONTCAR ]] && struct="$calc_path/CONTCAR"
-            energy=$(grep "free  energy" "$outcar" | tail -1 | awk '{print $5}') || true
-            [[ -z $energy ]] && { failed+=("$calc_path"); continue; }
+    # Structural file selection
+    struct="$calc_path/POSCAR"
+    if [[ $CALC == relax && -f $calc_path/CONTCAR ]]; then
+        struct="$calc_path/CONTCAR"
+    fi
 
-            get_lengths "$struct"
-            tag=$(basename "$poscar")
-            echo -e "${tag}\t${a_len}\t${b_len}\t${c_len}\t${energy}" >> "$out_dir_abs/energies.dat"
-            converged=$((converged+1))
+    # Print first few lines of structural file
+    echo "Preview of structure file ($struct):"
+    head -5 "$struct" || echo "ERROR: Could not read structure file."
 
-            fermi_line=$(grep "BZINTS: Fermi energy" "$outcar" | tail -1 || true)
-            band_line=$(grep "Band energy" "$outcar" | tail -1 || true)
-            fermi_energy=$(awk '{for(i=1;i<NF;i++) if($i=="energy:") {print $(i+1); exit}}' <<<"$fermi_line")
-
-            # Append magnetization block
-            mag_block=$(awk '
-                /magnetization \(x\)/ {found=1;buf="";getline;getline;next}
-                /^$/ && found {last=buf;found=0}
-                found {buf=buf $0 ORS}
-                END {print last}' "$outcar")
-
-            if [[ -n $mag_block ]]; then
-                {
-                    echo "Directory: $tag"
-                    echo "Lattice: A=${a_len} B=${b_len} C=${c_len}"
-                    echo "$mag_block"
-                    echo
-                } >> "$out_dir_abs/magnetization.dat"
-            fi
-
-            (
-                cd "$calc_path"
-                echo -e "303" | vaspkit >/dev/null 2>&1
-                mv -f KPOINTS KPOINTS_old 2>/dev/null || true
-                mv -f KPATH.in KPOINTS
-
-                echo -e "211" | vaspkit >/dev/null 2>&1
-                gap_file="$out_dir_abs/BAND_GAPS/BAND_GAP_${tag}"
-                [[ -f BAND_GAP ]] && cp BAND_GAP "$gap_file"
-
-                if [[ -f BAND_GAP ]]; then
-                    gap_val=$(awk '/Band Gap \(eV\):/ {print $6}' BAND_GAP)
-                    fermi_val=$(awk '/Fermi Energy \(eV\):/ {print $6}' BAND_GAP)
-                    echo -e "${tag}\t${a_len}\t${b_len}\t${c_len}\t${gap_val:-NA}\t${fermi_val:-NA}" >> "$out_dir_abs/band_gaps.dat"
-                fi
-                mv -f KPOINTS KPATH.in
-                mv -f KPOINTS_old KPOINTS
-            )
+    # Prepare magnetization file header if needed
+    if ! grep -q "^# Species" "$mag_file"; then
+        symbols_line=$(awk 'NR==6{print}' "$struct")
+        counts_line=$(awk 'NR==7{print}' "$struct")
+        read -ra syms  <<< "$symbols_line"
+        read -ra cnts  <<< "$counts_line"
+        echo "# Species and atom index ranges (1-based):" >> "$mag_file"
+        start=1
+        for i in "${!syms[@]}"; do
+            sym=${syms[i]}
+            num=${cnts[i]}
+            end=$(( start + num - 1 ))
+            echo "# ${sym}: ${start}-${end}" >> "$mag_file"
+            start=$(( end + 1 ))
         done
+        echo >> "$mag_file"
+    fi
 
-        summary="$out_dir_abs/convergence_summary.txt"
+    # Copy vasprun.xml if requested
+    if (( COPY_XML )) && [[ -f $calc_path/vasprun.xml ]]; then
+        mkdir -p "$out_abs/vasprun/$pos_dir"
+        cp "$calc_path/vasprun.xml" "$out_abs/vasprun/$pos_dir/vasprun.xml"
+        echo "Copied vasprun.xml for $pos_dir"
+    fi
+
+    # Extract energy
+    energy_line=$(grep "free  energy" "$outcar" | tail -1)
+    echo "Energy line: $energy_line"
+    energy=$(echo "$energy_line" | awk '{print $5}')
+    echo "Parsed energy: $energy"
+    if [[ -z $energy ]]; then
+        echo -e "${RED}Energy extraction failed for $pos_dir. Skipping.${RESET}"
+        failed+=("$calc_path")
+        continue
+    fi
+
+    # Extract lattice lengths
+    get_lengths "$struct"
+
+    # Append energy data
+    echo -e "${pos_dir}\t${a_len}\t${b_len}\t${c_len}\t${energy}" >> "$out_abs/energies.dat"
+    (( converged++ ))
+
+    # Magnetization block extraction
+    mag_block=$(awk '
+        /magnetization \(x\)/ {found=1;buf="";getline;getline;next}
+        /^$/ && found         {last=buf;found=0}
+        found                 {buf=buf $0 ORS}
+        END                   {print last}' "$outcar")
+
+    if [[ -n $mag_block ]]; then
+        echo "Magnetization block found for $pos_dir, length: ${#mag_block}"
         {
-            echo "Convergence summary  ($FUNC, $CALC)"
-            echo "Generated on $(date)"
+            echo "Directory: $pos_dir"
+            echo "Lattice: A=${a_len} B=${b_len} C=${c_len}"
+            echo "$mag_block"
             echo
-            printf "%-10s %10s %10s\n" "Total" "Converged" "Failed"
-            printf "%-10d %10d %10d\n" "$total" "$converged" "$((total-converged))"
-            if ((${#failed[@]})); then
-                echo -e "\n--- Unconverged or incomplete ---"
-                printf '%s\n' "${failed[@]}"
-            fi
-        } | tee "$summary"
+        } >> "$mag_file"
+    else
+        echo "No magnetization block found in $pos_dir"
+    fi
 
-        echo -e "${GREEN}✓ Finished ${FUNC}/${CALC}${RESET}"
-        echo -e "   → Energy         : ${CYAN}$out_dir_abs/energies.dat${RESET}"
-        echo -e "   → Band gaps      : ${CYAN}$out_dir_abs/band_gaps.dat${RESET}"
-        echo -e "   → Magnetization  : ${CYAN}$out_dir_abs/magnetization.dat${RESET}"
-        echo -e "   → Summary        : ${CYAN}$summary${RESET}"
+    # Band gap extraction
+    (
+        cd "$calc_path" || { echo "Failed to cd into $calc_path"; exit 1; }
+        echo "Running vaspkit in $pos_dir ..."
+        echo -e "303" | vaspkit > /dev/null
+        mv -f KPOINTS KPOINTS_old 2>/dev/null || true
+        mv -f KPATH.in KPOINTS 2>/dev/null || true
+        echo -e "211" | vaspkit > /dev/null
+        gap_file="$out_abs/BAND_GAPS/BAND_GAP_${pos_dir}"
+        if [[ -f BAND_GAP ]]; then
+            cp BAND_GAP "$gap_file"
+            gap_val=$(awk '/Band Gap \(eV\):/   {print $6}' BAND_GAP)
+            fermi_val=$(awk '/Fermi Energy \(eV\):/{print $6}' BAND_GAP)
+            echo -e "${pos_dir}\t${a_len}\t${b_len}\t${c_len}\t${gap_val:-NA}\t${fermi_val:-NA}" >> "$out_abs/band_gaps.dat"
+            echo "Band gap and Fermi energy extracted for $pos_dir"
+        else
+            echo "No BAND_GAP file generated in $pos_dir"
+        fi
+        mv -f KPOINTS KPATH.in 2>/dev/null || true
+        mv -f KPOINTS_old KPOINTS 2>/dev/null || true
+    )
 
-        tar -zcf "${out_dir_abs}.tar.gz" -C "$(dirname "$out_dir_abs")" "$(basename "$out_dir_abs")"
-        echo -e "   📆 Archived      : ${CYAN}${out_dir_abs}.tar.gz${RESET}"
-        echo -e "   📂 Kept directory: ${CYAN}${out_dir_abs}/${RESET}\n"
-    done
 done
+
+# Summary
+summary="$out_abs/convergence_summary.txt"
+{
+    echo "Convergence summary  ($FUNC, $CALC)"
+    echo "Generated on $(date)"
+    echo
+    printf "%-10s %10s %10s\n" "Total" "Converged" "Failed"
+    printf "%-10d %10d %10d\n" "$total" "$converged" "$((total-converged))"
+    if ((${#failed[@]})); then
+        echo -e "\n--- Unconverged or incomplete ---"
+        printf '%s\n' "${failed[@]}"
+    fi
+} | tee "$summary"
+
+echo -e "${GREEN}✓ Finished gathering results for ${FUNC}/${CALC}${RESET}"
+echo -e "   → Energy         : ${CYAN}$out_abs/energies.dat${RESET}"
+echo -e "   → Band gaps      : ${CYAN}$out_abs/band_gaps.dat${RESET}"
+echo -e "   → Magnetization  : ${CYAN}$mag_file${RESET}"
+echo -e "   → Summary        : ${CYAN}$summary${RESET}"
+if (( COPY_XML )); then
+    echo -e "   → vasprun.xml    : ${CYAN}$out_abs/vasprun/${RESET}"
+fi
+
+tar -zcf "${out_abs}.tar.gz" -C "$(dirname "$out_abs")" "$(basename "$out_abs")"
+echo -e "   📦 Archived      : ${CYAN}${out_abs}.tar.gz${RESET}\n"
 

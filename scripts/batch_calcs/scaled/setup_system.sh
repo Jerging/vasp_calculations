@@ -1,106 +1,99 @@
 #!/usr/bin/env bash
-# setup_calculations.sh
-# Interactively choose a POSCAR set, then prepare calculation folders.
+# setup_calculations.sh  (NEW‑LAYOUT VERSION)
+# ---------------------------------------------------------------------------
+# Usage:  setup_calculations.sh  <SYSTEM> <CALC> <KPR> <KSCHEME> <FUNCTIONAL>
+# Example: ./setup_calculations.sh SrTiO3 scf 0.04 2 PBEsol+U
+#
+# The script               must be run where a folder  POSCARs/  exists.
+# After it finishes, you will have:
+#
+#   SYS/FUNC/CALC/POSCAR_scaled_* /POSCAR
+#   SYS/<POSCAR_SET>_POSCAR                  (one copy of the reference POSCAR)
+#
+# plus STRUCTURE_INFO and K‑point files in each calculation directory.
+# ---------------------------------------------------------------------------
 
 set -euo pipefail
-shopt -s nullglob      # empty globs vanish
+shopt -s nullglob
 
-# ──────────────────────────
-# 1. Parse remaining args
-#    (POSCAR directory is chosen interactively, so 5 args now)
-# ──────────────────────────
-if [ "$#" -ne 5 ]; then
+# ────────────────────────────── 1. PARSE ARGS ─────────────────────────────
+if [[ "$#" -ne 5 ]]; then
     echo "Usage: $0 <SYSTEM> <CALC> <KPR> <KSCHEME> <FUNCTIONAL>"
     exit 1
 fi
 
-SYS="$1"          # e.g. SrTiO3
-CALC="$2"         # e.g. scf
-KPR="$3"          # e.g. 0.04
-KSCHEME="$4"      # e.g. 2 for Monkhorst
-FUNC="$5"         # e.g. PBEsol+U
+SYS="$1"        # e.g. SrTiO3  → will become the top‑level project dir
+CALC="$2"       # e.g. scf     → sub‑dir inside <FUNC>/
+KPR="$3"        # e.g. 0.04    → k‑point spacing for vaspkit option 102
+KSCHEME="$4"    # e.g. 2       → Monkhorst, etc.
+FUNC="$5"       # e.g. PBEsol+U
 
-# ──────────────────────────
-# 2. Discover candidate POSCAR sets
-# ──────────────────────────
+# ────────────────────────────── 2. PICK POSCAR SET ────────────────────────
 POSCAR_ROOT="POSCARs"
-[[ -d "$POSCAR_ROOT" ]] || { echo "Error: '$POSCAR_ROOT' directory not found."; exit 1; }
+[[ -d $POSCAR_ROOT ]] || { echo "ERROR: '$POSCAR_ROOT' directory not found."; exit 1; }
 
-declare -a CANDIDATES=()
+CANDIDATES=()
 for d in "$POSCAR_ROOT"/*/; do
-    [[ -d "$d"        ]] || continue
-    [[ -n $(find "$d" -maxdepth 1 -type f -name 'POSCAR*' -print -quit) ]] || continue
+    [[ -n $(find "$d" -maxdepth 1 -type f -name 'POSCAR*' -print -quit) ]] && \
     CANDIDATES+=("$(basename "$d")")
 done
 
 if ((${#CANDIDATES[@]} == 0)); then
-    echo "Error: No non-empty POSCAR sets found under '$POSCAR_ROOT/'."
+    echo "ERROR: No non‑empty POSCAR sets in '$POSCAR_ROOT/'."
     exit 1
 fi
 
-# ──────────────────────────
-# 3. Let user choose
-# ──────────────────────────
 echo "Available POSCAR sets:"
-PS3=$'\n↳ Select a POSCAR directory by number (or Ctrl-C to abort): '
+PS3=$'\n↳ Select a set by number (Ctrl‑C to abort): '
 select POSCARDIR in "${CANDIDATES[@]}"; do
     [[ -n "${POSCARDIR:-}" ]] && break
 done
-echo    # newline
+echo
 
-echo "▶ Using POSCAR set: $POSCARDIR"
 POSCAR_SOURCE="$POSCAR_ROOT/$POSCARDIR"
+echo "▶ Using POSCAR set: $POSCARDIR"
 
-# ──────────────────────────
-# 4. Choose POTCAR flavours
-# ──────────────────────────
-echo "Available POTCAR: LDA, PBE"
-read -rp "Enter desired POTCAR (comma-separated, e.g., PBE,LDA): " user_input
-IFS=',' read -ra SELECTED_POTCAR <<<"$user_input"
+# ────────────────────────────── 3. CHOOSE POTCAR ──────────────────────────
+read -rp "Available POTCAR: LDA, PBE — choose (comma‑separated): " user_in
+IFS=',' read -ra SELECTED_POTCAR <<<"$user_in"
 
-VALID_POTCAR=(LDA PBE)
-for f in "${SELECTED_POTCAR[@]}"; do
-    if [[ ! " ${VALID_POTCAR[*]} " =~ " ${f} " ]]; then
-        echo "Error: Invalid POTCAR '$f'. Allowed: ${VALID_POTCAR[*]}"
-        exit 1
-    fi
+VALID=(LDA PBE)
+for p in "${SELECTED_POTCAR[@]}"; do
+    [[ " ${VALID[*]} " =~ " $p " ]] || { echo "ERROR: invalid POTCAR '$p'"; exit 1; }
 done
 
-# ──────────────────────────
-# 5. Build calculation tree
-# ──────────────────────────
-CALC_ROOT="${SYS}_calculations"
-mkdir -p "$CALC_ROOT"
+# ───────────────────── 4. BUILD <SYS>/<FUNC>/<CALC>/ TREE ─────────────────
+TARGET_ROOT="$SYS/$FUNC/$CALC"
+mkdir -p "$TARGET_ROOT"
 
-cp "$POSCAR_SOURCE/POSCAR" "$CALC_ROOT/${POSCARDIR}_POSCAR"
+# Keep one copy of the reference POSCAR at SYS/<set>_POSCAR (unchanged)
+cp   "$POSCAR_SOURCE/POSCAR" "$SYS/${POSCARDIR}_POSCAR"
 
 for poscar_file in "$POSCAR_SOURCE"/POSCAR_scaled_*; do
-    fname=$(basename "$poscar_file")
+    fname=$(basename "$poscar_file")              # POSCAR_scaled_*
     [[ "$fname" == "POSCAR" || "$fname" == "scales.txt" ]] && continue
 
-    scaled_dir="$CALC_ROOT/$fname"
-    mkdir -p "$scaled_dir"
-    cp "$poscar_file" "$scaled_dir/POSCAR"
+    calc_dir="$TARGET_ROOT/$fname"                # FINAL DESTINATION
+    mkdir -p "$calc_dir"
+    cp "$poscar_file" "$calc_dir/POSCAR"
 
+    # Loop over POTCAR flavour(s) — no extra sub‑folder (overwrite if >1 choice)
     for potcar in "${SELECTED_POTCAR[@]}"; do
-        subdir="$scaled_dir/$FUNC/$CALC"
-        mkdir -p "$subdir"
-        cp "$scaled_dir/POSCAR" "$subdir/POSCAR"
-
-        # Update ~/.vaspkit with chosen POTCAR
+        # Update ~/.vaspkit to reference chosen pseudopotential
         sed "s/PSEUDO/$potcar/" ~/.vaspkitbase > ~/.vaspkit
 
-        # ① vaspkit structure summary
-        (cd "$subdir" && echo -e "01\n103" | vaspkit | awk '/Summary/,EOF' > STRUCTURE_INFO)
+        # (A) Structure summary  (vaspkit option 01 → 103)
+        ( cd "$calc_dir" && echo -e "01\n103" | vaspkit | \
+          awk '/Summary/,/^\+.*\+/' > STRUCTURE_INFO )
 
-        # ② vaspkit K-points
-        (cd "$subdir" && echo -e "102\n$KSCHEME\n$KPR" | vaspkit | \
-            awk '/Summary/,/+---------------------------------------------------------------+/' >> STRUCTURE_INFO)
+        # (B) Automatic Γ‑centred or Monkhorst K‑mesh  (option 102)
+        ( cd "$calc_dir" && echo -e "102\n$KSCHEME\n$KPR" | vaspkit | \
+          awk '/Summary/,/^\+.*\+/' >> STRUCTURE_INFO )
 
-        # Remove auto INCAR (if any)
-        rm -f "$subdir/INCAR"
+        rm -f "$calc_dir/INCAR"   # remove auto‑generated INCAR (if any)
     done
 done
 
-echo "🎉 Setup complete for initial scaled $CALC calculations of the $SYS system."
+echo -e "\n🎉  Setup complete."
+echo    "    Calculations written under:  $TARGET_ROOT/"
 
