@@ -113,9 +113,26 @@ echo
 FILES_TO_COPY_LITERAL=$(printf '"%s" ' "${FILES_TO_COPY[@]}")
 DIRS_LITERAL=$(printf '"%s" ' "${DIRS[@]}")
 
+###############################################################################
+# 6. Parse data 
+###############################################################################
+
+#RELAX="no"
+#CP_VASPRUN="no"
+
+#read -rp "Are these systems being relaxed? [y/N]: " ans
+#[[ "$ans" =~ ^[Yy]$ ]] && $RELAX="yes"
+
+#read -rp "Copy vasprun.xml?" ans
+#[[ "$ans" =~ ^[Yy]$ ]] && $CP_VASPRUN="yes"
+
+#echo
+#echo "✅ Files that will be copied forward: ${FILES_TO_COPY[*]:-(none)}"
+#echo
+
 
 ###############################################################################
-# 6. Construct the SLURM jobscript
+# 7. Construct the SLURM jobscript
 ###############################################################################
 cat > "$JOBSCRIPT" << EOF
 #!/usr/bin/env bash
@@ -129,8 +146,8 @@ cat > "$JOBSCRIPT" << EOF
 #SBATCH -A PHY24018
 
 module purge
-module load intel/19.1.1 impi/19.0.9
-module load vasp/6.3.0
+module load intel/19.1.1  impi/19.0.9
+module load vasp/6.3.0 
 export OMP_NUM_THREADS=1
 
 ROOT="\$PWD"
@@ -160,6 +177,8 @@ for ((i=0; i<\${#DIRS[@]}; i++)); do
 done
 
 echo "🎉 All calculations finished successfully."
+
+bash ~/scripts/batch_calcs/scaled/data_parser_no_relax.sh
 EOF
 
 ###############################################################################

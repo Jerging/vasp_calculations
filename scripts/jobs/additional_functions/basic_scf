@@ -1,0 +1,27 @@
+#!/bin/bash
+# Find directory with VASP input files but no OUTCAR (not already run)
+original_dir=""
+for dir in */; do
+    if [[ -f "$dir/POSCAR" && -f "$dir/POTCAR" && -f "$dir/KPOINTS" && ! -f "$dir/OUTCAR" ]]; then
+        original_dir="$dir"
+        break
+    fi
+done
+
+if [ -z "$original_dir" ]; then
+    echo "Error: No directory containing POSCAR POTCAR KPOINTS (without OUTCAR) found."
+    exit 1
+fi
+
+cp -r "$original_dir" "scf"
+
+# Copy scf INCAR
+incar_file="scf_INCAR"
+if [ -f "$incar_file" ]; then
+    cp "$incar_file" "scf/INCAR"
+else
+    echo "Error: $incar_file not found."
+    exit 1
+fi
+
+echo "scf directory setup completed."

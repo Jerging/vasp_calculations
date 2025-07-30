@@ -1,0 +1,16 @@
+# VASP phonons workflow wrapper script#
+# Check if relaxation converged
+result=$(bash ~/scripts/structure/phonons/after_relax.sh | tail -1)
+    
+if [[ "$result" == "true" ]]; then
+	echo "Relaxation converged, proceeding to phonons..."
+	# Descend into phonons subdirectory
+	cd phonons
+	echo -e "101\n2\n0.03" | vaspkit
+	echo -e "303" | vaspkit
+	mv KPATH.in QPOINTS
+	
+	ibrun vasp_std > phonons.out
+else        
+	echo "Struction is not converged, run relaxation again"
+fi

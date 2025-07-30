@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# chain_vasp_launcher.sh
+# elastic_vasp_launcher.sh
 # Run inside a directory that contains subdirectories with strain_* folders.
 # The script builds and submits a SLURM job that executes VASP
-# in ALL strain_* directories across ALL top-level directories, copying selected files forward.
+# in ALL strain_* directories across ALL top-level directories.
 
 set -euo pipefail
 
 ROOT=$PWD                 # Absolute path to current directory
-JOBSCRIPT="chain_vasp_jobscript.sh"
+JOBSCRIPT="elastic_vasp_jobscript.sh"
 
 ###############################################################################
 # 1. Discover top-level directories (C11_C12_I, C11_C12_II, C44, etc.)
@@ -27,13 +27,7 @@ done
 echo
 
 ###############################################################################
-# 2. Will run all top-level directories (no selection needed)
-###############################################################################
-echo "Will run all top-level directories and their strain subdirectories."
-echo
-
-###############################################################################
-# 3. Discover all strain_* directories in all top-level directories
+# 2. Discover all strain_* directories in all top-level directories
 ###############################################################################
 ALL_DIRS=()
 for top_dir in "${TOP_DIRS[@]}"; do
@@ -54,85 +48,51 @@ if [[ ${#ALL_DIRS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-###############################################################################
-# 4. Will run all strain directories (no selection needed)
-###############################################################################
-echo "Will run all strain directories in order."
+# Prepare directory list for jobscript
+DIRS_LITERAL=$(printf '"%s" ' "${ALL_DIRS[@]}")
 
 ###############################################################################
-# 5. SLURM resource prompts
+# 3. SLURM resource prompts
 ###############################################################################
 read -rp "Enter number of nodes     (e.g. 1):        " NODES
 read -rp "Enter number of cores     (e.g. 128):      " CORES
 read -rp "Enter queue/partition     (e.g. normal):   " QUEUE
 read -rp "Enter walltime HH:MM:SS   (e.g. 48:00:00): " TIME
+read -rp "Enter SLURM account       (e.g. PHY24018): " ACCOUNT
 echo
 
 ###############################################################################
-# 6. Use all directories (no selection needed)
-###############################################################################
-DIRS=("${ALL_DIRS[@]}")
-
-echo "Will run calculations in all directories (in order):"
-printf '  %s\n' "${DIRS[@]}"
-echo
-
-###############################################################################
-# 7. Ask which files to copy forward
-###############################################################################
-FILES_TO_COPY=()
-
-read -rp "Copy CHGCAR between steps? [y/N]: " ans
-[[ "$ans" =~ ^[Yy]$ ]] && FILES_TO_COPY+=("CHGCAR")
-
-read -rp "Copy WAVECAR between steps? [y/N]: " ans
-[[ "$ans" =~ ^[Yy]$ ]] && FILES_TO_COPY+=("WAVECAR")
-
-read -rp "Copy any additional files? (space-separated, leave blank for none): " -a extra_files
-FILES_TO_COPY+=("${extra_files[@]}")
-
-echo
-echo "✅ Files that will be copied forward: ${FILES_TO_COPY[*]:-(none)}"
-echo
-
-# Prepare literal array expansions for jobscript
-FILES_TO_COPY_LITERAL=$(printf '"%s" ' "${FILES_TO_COPY[@]}")
-DIRS_LITERAL=$(printf '"%s" ' "${DIRS[@]}")
-
-
-###############################################################################
-# 8. Construct the SLURM jobscript
+# 4. Construct the SLURM jobscript
 ###############################################################################
 cat > "$JOBSCRIPT" << EOF
 #!/usr/bin/env bash
-#SBATCH -J chain_vasp
-#SBATCH -o chain_vasp.%j.out
-#SBATCH -e chain_vasp.%j.err
+#SBATCH -J elastic_vasp
+#SBATCH -o elastic_vasp.%j.out
+#SBATCH -e elastic_vasp.%j.err
 #SBATCH -N $NODES
 #SBATCH -n $CORES
 #SBATCH -p $QUEUE
 #SBATCH -t $TIME
-#SBATCH -A PHY24018
+#SBATCH -A $ACCOUNT
 
 module purge
-module load intel/19.1.1 impi/19.0.9
+module load intel/19.1.1  impi/19.0.9
 module load vasp/6.3.0
+
 export OMP_NUM_THREADS=1
 
 ROOT="\$PWD"
 DIRS=($DIRS_LITERAL)
-FILES_TO_COPY=($FILES_TO_COPY_LITERAL)
 
 for ((i=0; i<\${#DIRS[@]}; i++)); do
   CUR="\${DIRS[i]}"
   echo "▶ Running step \$((i+1)) / \${#DIRS[@]} : \$CUR"
   cd "\$CUR"
 
-  if (( i > 0 && \${#FILES_TO_COPY[@]} > 0 )); then
-    echo "↪ Copying forward files from previous directory: \${DIRS[i-1]}"
-    for file in "\${FILES_TO_COPY[@]}"; do
-      cp -f "\$ROOT/\${DIRS[i-1]}/\$file" "\$file"
-    done
+  if [ -f "COMPLETED" ]; then
+    echo "↪ Already completed - skipping"
+    cd "\$ROOT"
+    continue
   fi
 
   ibrun vasp_std
@@ -149,7 +109,7 @@ echo "🎉 All calculations finished successfully."
 EOF
 
 ###############################################################################
-# 9. Submit
+# 5. Submit
 ###############################################################################
 echo "Jobscript '$JOBSCRIPT' created."
 echo "Submitting with sbatch..."

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to sum up VASP calculation times from OUTCAR files in POSCAR_scaled* directories
+# Script to sum up VASP calculation times from OUTCAR files in * directories
 
 total_time=0
 count=0
@@ -16,11 +16,11 @@ output() {
 # Clear the output file
 > "$output_file"
 
-output "Scanning for OUTCAR files in POSCAR_scaled* directories..."
+output "Scanning for OUTCAR files in * directories..."
 output "============================================================"
 
-# Find all OUTCAR files in POSCAR_scaled* directories
-for outcar in POSCAR_scaled*/OUTCAR; do
+# Find all OUTCAR files in * directories
+for outcar in */OUTCAR; do
     if [[ -f "$outcar" ]]; then
         dir=$(dirname "$outcar")
         

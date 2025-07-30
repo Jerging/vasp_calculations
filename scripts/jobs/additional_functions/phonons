@@ -1,0 +1,37 @@
+# VASP phonons workflow wrapper script
+
+# Store initial directory
+CURRENT_DIR=$(pwd)
+
+# Run relax setup
+bash ~/scripts/structure/relax/setup.sh
+
+# Descend into relax subdirectory
+cd relax
+
+# Run initial relaxation
+bash ~/scripts/structure/relax/repeat_relax.sh
+
+# Return to initial directory
+cd "$CURRENT_DIR"
+
+# Loop until convergence
+while true; do
+    # Check if relaxation converged
+    result=$(bash ~/scripts/structure/phonons/after_relax.sh | tail -1)
+    
+    if [[ "$result" == "true" ]]; then
+        echo "Relaxation converged, proceeding to phonons..."
+        break
+    else
+        echo "Relaxation not converged, running again..."
+        
+        # Go back to relax subdirectory and run again
+        cd relax
+        bash ~/scripts/structure/relax/repeat_relax.sh
+        cd "$INITIAL_DIR"
+    fi
+done
+
+# Descend into phonons subdirectory
+cd phonons
