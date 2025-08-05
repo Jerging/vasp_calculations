@@ -42,7 +42,7 @@ while (( ITER < MAX_ITER )); do
     ((ITER++))
     
     # Run VASP
-    echo -e "101\n2\n0.03" | vaspkit
+    echo -e "102\n2\n0.03" | vaspkit
     ibrun vasp_std > relax.out 2>&1
     if [[ $? -ne 0 ]]; then
         echo "$ITER VASP failed" >> "$LOG_FILE"

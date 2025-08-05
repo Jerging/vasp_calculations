@@ -1,0 +1,21 @@
+module purge
+module load gcc/13.2.0
+conda activate phonopy
+
+# Generate displacements
+phonopy -d --dim 1 1 1
+
+# Extract forces from vasprun.xml
+phonopy --fc vasprun.xml
+
+# Generate KPOINTS path using vaspkit
+echo -e "305\n3" | vaspkit
+
+# Modify DIM and MP lines in KPATH.phonopy for band structure calculation
+sed -i '/^DIM/s/.*/DIM = 1 1 1/' KPATH.phonopy
+sed -i '/^MP =/s/.*/MP = 20 20 20/' KPATH.phonopy
+echo "PRIMITIVE_AXES = AUTO" >> KPATH.phonopy
+
+# Generate band structure using phonopy
+phonopy --readfc KPATH.phonopy -p -s
+

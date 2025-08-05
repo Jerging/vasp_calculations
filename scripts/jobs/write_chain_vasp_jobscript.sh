@@ -1,28 +1,34 @@
 #!/usr/bin/env bash
 # chain_vasp_launcher.sh
-# Run inside a CALC directory that contains many POSCAR_scaled_* subfolders.
-# The script interactively builds and submits a SLURM job that executes VASP
-# in each POSCAR_scaled_* directory in sequence, copying selected files forward.
+# Run inside a CALC directory. Finds subdirectories with a full VASP input set (POSCAR, POTCAR, KPOINTS, INCAR),
+# and interactively builds and submits a SLURM job that chains VASP executions.
 
 set -euo pipefail
 
-ROOT=$PWD                 # Absolute path to current CALC directory
+ROOT=$PWD
 JOBSCRIPT="chain_vasp_jobscript.sh"
 
 ###############################################################################
-# 1. Discover POSCAR_scaled_* directories
+# 1. Discover valid subdirectories with full VASP input set
 ###############################################################################
-mapfile -t ALL_DIRS < <(find . -maxdepth 1 -type d -name "POSCAR_scaled_*" | sort)
+mapfile -t ALL_DIRS < <(find . -mindepth 1 -maxdepth 1 -type d | sort)
 
-if [[ ${#ALL_DIRS[@]} -eq 0 ]]; then
-  echo "No POSCAR_scaled_* directories found in $ROOT"
+VALID_DIRS=()
+for dir in "${ALL_DIRS[@]}"; do
+  dir="${dir#./}"
+  if [[ -f "$dir/POSCAR" && -f "$dir/POTCAR" && -f "$dir/KPOINTS" && -f "$dir/INCAR" ]]; then
+    VALID_DIRS+=("$dir")
+  fi
+done
+
+if [[ ${#VALID_DIRS[@]} -eq 0 ]]; then
+  echo "No valid subdirectories with full VASP input set found in $ROOT"
   exit 1
 fi
 
-echo "Found POSCAR_scaled_* directories:"
-for i in "${!ALL_DIRS[@]}"; do
-  d="${ALL_DIRS[i]#./}"
-  echo "  [$i] $d"
+echo "Found directories with full VASP input set:"
+for i in "${!VALID_DIRS[@]}"; do
+  echo "  [$i] ${VALID_DIRS[i]}"
 done
 echo
 
@@ -36,7 +42,7 @@ read -rp "Select input method (1 or 2): " method
 indices=()
 
 if [[ "$method" == "1" ]]; then
-  read -rp "Enter the indices of directories to chain, in order (space‑separated): " -a indices
+  read -rp "Enter the indices of directories to chain, in order (space-separated): " -a indices
 elif [[ "$method" == "2" ]]; then
   read -rp "Enter start index: " start_idx
   read -rp "Enter end index:   " end_idx
@@ -44,7 +50,7 @@ elif [[ "$method" == "2" ]]; then
     echo "Start and end must be integers."
     exit 1
   fi
-  if (( start_idx < 0 || start_idx >= ${#ALL_DIRS[@]} || end_idx < 0 || end_idx >= ${#ALL_DIRS[@]} )); then
+  if (( start_idx < 0 || start_idx >= ${#VALID_DIRS[@]} || end_idx < 0 || end_idx >= ${#VALID_DIRS[@]} )); then
     echo "Indices out of range."
     exit 1
   fi
@@ -59,7 +65,7 @@ else
 fi
 
 for idx in "${indices[@]}"; do
-  if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 0 || idx >= ${#ALL_DIRS[@]} )); then
+  if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 0 || idx >= ${#VALID_DIRS[@]} )); then
     echo "Invalid index: $idx"
     exit 1
   fi
@@ -79,11 +85,7 @@ echo
 ###############################################################################
 DIRS=()
 for idx in "${indices[@]}"; do
-  d="${ALL_DIRS[idx]#./}"
-  if [[ ! -d "$d" ]]; then
-    echo "Directory does not exist: $d"
-    exit 1
-  fi
+  d="${VALID_DIRS[idx]}"
   DIRS+=("$d")
 done
 
@@ -109,10 +111,8 @@ echo
 echo "✅ Files that will be copied forward: ${FILES_TO_COPY[*]:-(none)}"
 echo
 
-# Prepare literal array expansions for jobscript
 FILES_TO_COPY_LITERAL=$(printf '"%s" ' "${FILES_TO_COPY[@]}")
 DIRS_LITERAL=$(printf '"%s" ' "${DIRS[@]}")
-
 
 ###############################################################################
 # 6. Construct the SLURM jobscript
@@ -139,13 +139,12 @@ FILES_TO_COPY=($FILES_TO_COPY_LITERAL)
 
 for ((i=0; i<\${#DIRS[@]}; i++)); do
   CUR="\${DIRS[i]}"
-  
-  # Skip if already completed
+
   if [[ -f "\$CUR/COMPLETED" ]]; then
     echo "Skipping \$CUR (already completed)"
     continue
   fi
-  
+
   echo "▶ Running step \$((i+1)) / \${#DIRS[@]} : \$CUR"
   cd "\$CUR"
 
@@ -167,13 +166,8 @@ for ((i=0; i<\${#DIRS[@]}; i++)); do
 done
 
 echo "🎉 All calculations finished successfully."
-
-bash ~/scripts/batch_calcs/scaled/data_parser_no_relax.sh
+bash ~/scripts/util/parse_data.sh -x
 EOF
 
-###############################################################################
-# 7. Submit
-###############################################################################
 echo "Jobscript '$JOBSCRIPT' created."
-echo "Submitting with sbatch..."
-sbatch "$JOBSCRIPT"
+

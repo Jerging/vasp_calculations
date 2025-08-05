@@ -15,11 +15,6 @@ def replace_second_line(arg1, arg2, arg3):
         with open('POSCAR', 'r') as f:
             lines = f.readlines()
         
-        # Check if file has at least 2 lines
-        if len(lines) < 2:
-            print("Error: POSCAR file must have at least 2 lines")
-            sys.exit(1)
-        
         # Replace the second line (index 1) with the three arguments
         new_second_line = f"{arg1} {arg2} {arg3}\n"
         lines[1] = new_second_line

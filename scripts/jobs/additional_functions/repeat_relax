@@ -1,14 +1,13 @@
-#!/bin/bash
-# VASP relaxation script with proper convergence breaking
+# Run relax setup
+bash ~/scripts/structure/relax/setup.sh original_directory
+
+cd relax
+
 MAX_ITER=50
 ITER=0
 LOG_FILE="relaxation.log"
 OUTPUT_DIR="relaxation_outputs"
 result="false"  # Initialize result variable
-
-# Energy convergence parameters
-ENERGY_TOLERANCE=1e-8  # Energy difference threshold (eV)
-MIN_SAME_ENERGY_COUNT=5  # Minimum consecutive identical energies to trigger convergence
 
 # Check for previous run and restore if found
 if [[ -f "$LOG_FILE" && -d "$OUTPUT_DIR" ]]; then
@@ -17,7 +16,7 @@ if [[ -f "$LOG_FILE" && -d "$OUTPUT_DIR" ]]; then
     if [[ -n "$last_iter" && "$last_iter" -gt 0 ]]; then
         # Check if already converged (FIXED: column 4, not 3)
         last_status=$(grep "^$last_iter " "$LOG_FILE" | tail -1 | awk '{print $4}')
-        if [[ "$last_status" == "CONVERGED" || "$last_status" == "ENERGY_CONVERGED" ]]; then
+        if [[ "$last_status" == "CONVERGED" ]]; then
             echo "Previous run already converged at iteration $last_iter"
             exit 0
         fi
@@ -41,45 +40,12 @@ if [[ $ITER -eq 0 ]]; then
     } > "$LOG_FILE"
 fi
 
-# Function to check energy convergence
-check_energy_convergence() {
-    local current_iter=$1
-    local current_energy=$2
-    
-    # Need at least MIN_SAME_ENERGY_COUNT iterations to check
-    if [[ $current_iter -lt $MIN_SAME_ENERGY_COUNT ]]; then
-        return 1
-    fi
-    
-    # Get the last few energies from the log
-    local energies=($(tail -n $MIN_SAME_ENERGY_COUNT "$LOG_FILE" | awk '{print $2}' | grep -v "Energy(eV)" | grep -v "^$"))
-    
-    # Check if we have enough energies
-    if [[ ${#energies[@]} -lt $MIN_SAME_ENERGY_COUNT ]]; then
-        return 1
-    fi
-    
-    # Check if all recent energies are identical (within tolerance)
-    local first_energy=${energies[0]}
-    for energy in "${energies[@]}"; do
-        if [[ "$energy" != "N/A" && "$first_energy" != "N/A" ]]; then
-            local diff=$(echo "$energy - $first_energy" | bc -l | sed 's/^-//')
-            if (( $(echo "$diff > $ENERGY_TOLERANCE" | bc -l) )); then
-                return 1
-            fi
-        else
-            return 1
-        fi
-    done
-    
-    return 0
-}
-
 # Main relaxation loop
 while (( ITER < MAX_ITER )); do
     ((ITER++))
     
     # Run VASP
+    echo -e "102\n2\n0.03" | vaspkit
     ibrun vasp_std > relax.out 2>&1
     if [[ $? -ne 0 ]]; then
         echo "$ITER VASP failed" >> "$LOG_FILE"
@@ -113,26 +79,9 @@ while (( ITER < MAX_ITER )); do
         break
     fi
     
-    # Determine status
-    status="CONTINUE"
-    if [[ "$result" == "true" ]]; then
-        status="CONVERGED"
-    else
-        # Check for energy convergence
-        printf "%-6d %-15s %-15s %s\n" "$ITER" "$energy" "$elapsed_time" "$status" >> "$LOG_FILE"
-        if check_energy_convergence "$ITER" "$energy"; then
-            status="ENERGY_CONVERGED"
-            result="true"  # Set result to break the loop
-        fi
-    fi
-    
-    # Log final status (update if energy converged)
-    if [[ "$status" == "ENERGY_CONVERGED" ]]; then
-        # Update the last line in the log file
-        sed -i "$ s/CONTINUE/ENERGY_CONVERGED/" "$LOG_FILE"
-    elif [[ "$status" != "CONTINUE" ]]; then
-        printf "%-6d %-15s %-15s %s\n" "$ITER" "$energy" "$elapsed_time" "$status" >> "$LOG_FILE"
-    fi
+    # Log status
+    status=$([[ "$result" == "true" ]] && echo "CONVERGED" || echo "CONTINUE")
+    printf "%-6d %-15s %-15s %s\n" "$ITER" "$energy" "$elapsed_time" "$status" >> "$LOG_FILE"
     
     # Break if converged
     if [[ "$result" == "true" ]]; then
@@ -147,11 +96,7 @@ done
 {
     echo "----------------------------------------"
     if [[ "$result" == "true" ]]; then
-        if [[ "$status" == "ENERGY_CONVERGED" ]]; then
-            echo "Energy converged after $ITER iterations (same energy for $MIN_SAME_ENERGY_COUNT+ steps)"
-        else
-            echo "Structure converged after $ITER iterations"
-        fi
+        echo "Converged after $ITER iterations"
     else
         echo "Stopped after $ITER iterations"
     fi
