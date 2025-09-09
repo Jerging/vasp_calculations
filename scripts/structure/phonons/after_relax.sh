@@ -24,8 +24,6 @@ if [[ ! -f "$relax_log" ]]; then
     exit 1
 fi
 
-echo "Checking for converged relaxation calculation..." >&2
-
 # Check if the calculation converged in two ways:
 # 1. Look for "CONVERGED" in the log file
 # 2. Run the structure comparison directly
@@ -38,9 +36,9 @@ cd ..
 
 if [[ "$converged_in_log" == "true" ]] || [[ "$structure_converged" == "true" ]]; then
     if [[ "$converged_in_log" == "true" ]]; then
-        echo "Found converged calculation in relax directory (from log)" >&2
+        echo "Found converged calculation in relax directory (from log)"
     else
-        echo "Found converged calculation in relax directory (from structure comparison)" >&2
+        echo "Found converged calculation in relax directory (from structure comparison)"
     fi
     
     # Create phonons directory in current directory
@@ -55,7 +53,7 @@ if [[ "$converged_in_log" == "true" ]] || [[ "$structure_converged" == "true" ]]
     for file in "${files_to_copy[@]}"; do
         if [[ -f "relax/$file" ]]; then
             cp "relax/$file" "$phonons_dir/"
-            echo "  Copied $file" >&2
+            echo "  Copied $file"
         else
             missing_files+=("$file")
         fi
@@ -64,21 +62,21 @@ if [[ "$converged_in_log" == "true" ]] || [[ "$structure_converged" == "true" ]]
     # Copy CONTCAR as POSCAR
     if [[ -f "relax/CONTCAR" ]]; then
         cp "relax/CONTCAR" "$phonons_dir/POSCAR"
-        echo "  Copied CONTCAR as POSCAR" >&2
+        echo "  Copied CONTCAR as POSCAR"
     else
         missing_files+=("CONTCAR")
     fi
 
     # Copy phonons_INCAR as INCAR
     cp "phonons_INCAR" "$phonons_dir/INCAR"
-    echo "  Copied phonons_INCAR as INCAR" >&2
+    echo "  Copied phonons_INCAR as INCAR"
     
     # Report any missing files
     if [[ ${#missing_files[@]} -gt 0 ]]; then
         echo "  Warning: Missing files in relax directory: ${missing_files[*]}" >&2
     fi
     
-    echo "  Phonons setup complete in $phonons_dir" >&2
+    echo "  Phonons setup complete in $phonons_dir"
     echo "true"
 else
     echo "Relaxation not converged" >&2

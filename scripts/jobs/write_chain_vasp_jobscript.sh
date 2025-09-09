@@ -165,7 +165,6 @@ for ((i=0; i<\${#DIRS[@]}; i++)); do
   cd "\$ROOT"
 done
 
-echo "🎉 All calculations finished successfully."
 bash ~/scripts/util/parse_data.sh -x
 EOF
 

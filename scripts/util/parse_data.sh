@@ -57,7 +57,6 @@ else
     echo "Option: vasprun.xml files will NOT be copied"
 fi
 
-# Fixed get_lengths function
 get_lengths() {
     local f="$1"
 
@@ -67,35 +66,27 @@ get_lengths() {
         return 1
     fi
 
-    # Read scale factor (line 2)
-    local scale
-    scale=$(sed -n '2p' "$f" | awk '{print $1}')
-
-    if [[ -z "$scale" ]]; then
-        echo -e "❌ ERROR: Could not read scale factor from '$f'"
+    # Use Python parser for reliable POSCAR parsing
+    local python_script="$HOME/scripts/util/parse_poscar.py"
+    
+    if [[ ! -f "$python_script" ]]; then
+        echo -e "❌ ERROR: Python parser not found at $python_script"
         a_len="NA"; b_len="NA"; c_len="NA"
         return 1
     fi
 
-    # Read lattice vectors (lines 3-5)
-    local line3 line4 line5
-    line3=$(sed -n '3p' "$f")
-    line4=$(sed -n '4p' "$f") 
-    line5=$(sed -n '5p' "$f")
-    
-    # Parse lattice vector components
-    local ax ay az bx by bz cx cy cz
-    read -r ax ay az <<< "$line3"
-    read -r bx by bz <<< "$line4"
-    read -r cx cy cz <<< "$line5"
-
-    # Calculate lengths using the same method as the working debug script
-    a_len=$(echo "$scale $ax $ay $az" | awk '{s=$1; x=$2; y=$3; z=$4; printf "%.6f", s * sqrt(x*x + y*y + z*z)}')
-    b_len=$(echo "$scale $bx $by $bz" | awk '{s=$1; x=$2; y=$3; z=$4; printf "%.6f", s * sqrt(x*x + y*y + z*z)}')
-    c_len=$(echo "$scale $cx $cy $cz" | awk '{s=$1; x=$2; y=$3; z=$4; printf "%.6f", s * sqrt(x*x + y*y + z*z)}')
-
-    echo "Lattice lengths: A=${a_len} Å, B=${b_len} Å, C=${c_len} Å"
-    return 0
+    # Call Python parser
+    if result=$(python3 "$python_script" "$f" 2>/dev/null); then
+        a_len=$(echo "$result" | awk '{print $1}')
+        b_len=$(echo "$result" | awk '{print $2}')
+        c_len=$(echo "$result" | awk '{print $3}')
+        echo "Lattice lengths: A=${a_len} Å, B=${b_len} Å, C=${c_len} Å"
+        return 0
+    else
+        echo -e "❌ ERROR: Failed to parse POSCAR file '$f'"
+        a_len="NA"; b_len="NA"; c_len="NA"
+        return 1
+    fi
 }
 
 # Discover OUTCARs

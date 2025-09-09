@@ -18,7 +18,8 @@ if [[ -f "$LOG_FILE" && -d "$OUTPUT_DIR" ]]; then
         last_status=$(grep "^$last_iter " "$LOG_FILE" | tail -1 | awk '{print $4}')
         if [[ "$last_status" == "CONVERGED" ]]; then
             echo "Previous run already converged at iteration $last_iter"
-            exit 0
+            result="true"
+	    ITER=$MAX_ITER
         fi
         # Restore from last iteration
         last_iter_dir="$OUTPUT_DIR/iter_$last_iter"

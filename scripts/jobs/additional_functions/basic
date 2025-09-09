@@ -1,9 +1,0 @@
-# VASP relax jobscript additional function
-
-# Run relax setup
-bash ~/scripts/structure/relax/setup.sh
-
-cd relax
-
-# Run initial relaxation
-bash ~/scripts/structure/relax/repeat_relax.sh
